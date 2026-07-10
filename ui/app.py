@@ -18,6 +18,9 @@ from pathlib import Path
 import customtkinter as ctk
 
 from core.models import (
+    COMP_ALSO,
+    COMP_NONE,
+    COMP_ONLY,
     DETECT_BOTH,
     DETECT_INTENSITY,
     DETECT_KILLS,
@@ -64,6 +67,34 @@ STYLE_LABELS = {
 }
 STYLE_BY_VALUE = {value: label for label, value in STYLE_LABELS.items()}
 
+COMP_LABELS = {
+    "Solo clips": COMP_NONE,
+    "Clips + compilatorio": COMP_ALSO,
+    "Solo compilatorio": COMP_ONLY,
+}
+COMP_BY_VALUE = {value: label for label, value in COMP_LABELS.items()}
+
+APP_WIDTH = 1024
+
+
+def _work_area() -> tuple[int, int, int, int]:
+    """(left, top, ancho, alto) del área de trabajo del monitor principal
+    en Windows (excluye la barra de tareas). Fallback: pantalla completa
+    menos un margen."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        rect = wintypes.RECT()
+        SPI_GETWORKAREA = 0x0030
+        if ctypes.windll.user32.SystemParametersInfoW(
+            SPI_GETWORKAREA, 0, ctypes.byref(rect), 0
+        ):
+            return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+    except Exception:  # noqa: BLE001 — cualquier fallo cae al comportamiento por defecto
+        pass
+    return 0, 0, 1920, 1000  # último recurso: tamaño razonable sin posicionar
+
 
 class UIState(Enum):
     IDLE = auto()
@@ -80,8 +111,13 @@ class ClipperApp(ctk.CTk):
         super().__init__()
 
         self.title("Clipper — Battlefield 6 Highlight Extractor")
-        self.geometry("1024x1024")
-        self.minsize(1024, 1024)
+        # Centrada horizontalmente, a toda la altura del área de trabajo
+        # (sin tapar la barra de tareas), manteniendo el ancho de la app
+        left, top, work_w, work_h = _work_area()
+        width = min(APP_WIDTH, work_w)
+        x = left + (work_w - width) // 2
+        self.geometry(f"{width}x{work_h}+{x}+{top}")
+        self.minsize(600, 600)
 
         self._event_queue: queue.Queue[ProgressEvent] = queue.Queue()
         self._cancel_event: threading.Event | None = None
@@ -233,14 +269,21 @@ class ClipperApp(ctk.CTk):
         self._style_selector.set(STYLE_BY_VALUE[VERTICAL_BLUR])
         self._style_selector.grid(row=2, column=1, pady=4, sticky="w")
 
-        self._make_compilation = tk.BooleanVar(value=False)
-        self._compilation_checkbox = ctk.CTkCheckBox(
-            output_frame, text="Crear también un video compilatorio (todos los clips unidos)",
-            variable=self._make_compilation, font=theme.FONT_UI,
-        )
-        self._compilation_checkbox.grid(
-            row=3, column=0, columnspan=2, padx=theme.PAD_X, pady=(4, theme.PAD_Y), sticky="w"
-        )
+        ctk.CTkLabel(
+            output_frame, text="Compilatorio", width=150, anchor="w", font=theme.FONT_UI
+        ).grid(row=3, column=0, padx=(theme.PAD_X, 8), pady=(4, theme.PAD_Y), sticky="w")
+        comp_row = ctk.CTkFrame(output_frame, fg_color="transparent")
+        comp_row.grid(row=3, column=1, pady=(4, theme.PAD_Y), sticky="w")
+        self._comp_var = tk.StringVar(value=COMP_BY_VALUE[COMP_NONE])
+        self._comp_radios = [
+            ctk.CTkRadioButton(
+                comp_row, text=label, variable=self._comp_var, value=label,
+                font=theme.FONT_UI,
+            )
+            for label in COMP_LABELS
+        ]
+        for radio in self._comp_radios:
+            radio.pack(side="left", padx=(0, 18))
 
         # ④ EJECUCIÓN ------------------------------------------------------
         execution = ctk.CTkFrame(self)
@@ -299,7 +342,8 @@ class ClipperApp(ctk.CTk):
         self._post_entry.configure(state=widget_state)
         self._exact_checkbox.configure(state=widget_state)
         self._format_selector.configure(state=widget_state)
-        self._compilation_checkbox.configure(state=widget_state)
+        for radio in self._comp_radios:
+            radio.configure(state=widget_state)
         self._update_vertical_style_state()
 
         self._start_button.configure(
@@ -347,7 +391,7 @@ class ClipperApp(ctk.CTk):
             kill_threshold=round(float(self._kill_threshold.get()), 2),
             output_format=FORMAT_LABELS.get(self._format_selector.get(), FORMAT_HORIZONTAL),
             vertical_style=STYLE_LABELS.get(self._style_selector.get(), VERTICAL_BLUR),
-            make_compilation=bool(self._make_compilation.get()),
+            compilation_mode=COMP_LABELS.get(self._comp_var.get(), COMP_NONE),
         )
 
         self._progress_panel.reset()
@@ -502,7 +546,9 @@ class ClipperApp(ctk.CTk):
         self._style_selector.set(
             STYLE_BY_VALUE.get(settings["vertical_style"], STYLE_BY_VALUE[VERTICAL_BLUR])
         )
-        self._make_compilation.set(bool(settings["make_compilation"]))
+        self._comp_var.set(
+            COMP_BY_VALUE.get(settings["compilation_mode"], COMP_BY_VALUE[COMP_NONE])
+        )
         self._update_threshold_label()
         self._update_sensitivity_hint()
 
@@ -519,7 +565,7 @@ class ClipperApp(ctk.CTk):
             "kill_threshold": round(float(self._kill_threshold.get()), 2),
             "output_format": FORMAT_LABELS.get(self._format_selector.get(), FORMAT_HORIZONTAL),
             "vertical_style": STYLE_LABELS.get(self._style_selector.get(), VERTICAL_BLUR),
-            "make_compilation": bool(self._make_compilation.get()),
+            "compilation_mode": COMP_LABELS.get(self._comp_var.get(), COMP_NONE),
         })
 
     def _on_close(self) -> None:

@@ -20,7 +20,7 @@ DEFAULTS: dict = {
     "kill_threshold": 0.45,
     "output_format": "horizontal",
     "vertical_style": "blur",
-    "make_compilation": False,
+    "compilation_mode": "none",
 }
 
 

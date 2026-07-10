@@ -34,6 +34,7 @@ CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 _PROGRESS_LINE = re.compile(r"^[A-Za-z_][\w.:]*=")
 
 _nvenc_available: bool | None = None
+_sdr_filter_cache: str | None = None
 
 
 class FFmpegError(RuntimeError):
@@ -91,6 +92,66 @@ def probe_duration(video: Path) -> float:
         return float(result.stdout.strip())
     except ValueError as exc:
         raise FFmpegError(f"ffprobe no devolvió una duración válida: {result.stdout!r}") from exc
+
+
+def probe_is_hdr(video: Path) -> bool:
+    """True si el video es HDR (PQ/HLG). Las grabaciones HDR de ShadowPlay
+    recodificadas sin tonemapping producen H.264 10-bit que Windows no
+    reproduce (0x80004005) y colores lavados en pantallas SDR."""
+    ffprobe = find_binary("ffprobe")
+    result = subprocess.run(
+        [
+            ffprobe, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=color_transfer",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(video),
+        ],
+        capture_output=True, text=True, creationflags=CREATION_FLAGS,
+    )
+    return result.stdout.strip() in {"smpte2084", "arib-std-b67"}
+
+
+def sdr_prep_filter(hdr: bool) -> str:
+    """Filtro que normaliza el video a SDR 8-bit reproducible en cualquier sitio.
+
+    Para HDR: tonemapping por GPU (libplacebo) o CPU (zscale); si el build de
+    ffmpeg no trae ninguno, al menos se fuerza 8 bits (reproducible, aunque
+    con colores apagados). Para SDR: solo asegura yuv420p.
+    """
+    if not hdr:
+        return "format=yuv420p"
+    global _sdr_filter_cache
+    if _sdr_filter_cache is None:
+        filters = _available_filters()
+        if "libplacebo" in filters:
+            _sdr_filter_cache = (
+                "libplacebo=tonemapping=hable:colorspace=bt709:"
+                "color_primaries=bt709:color_trc=bt709:range=tv:format=yuv420p"
+            )
+        elif "zscale" in filters and "tonemap" in filters:
+            _sdr_filter_cache = (
+                "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,"
+                "tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+            )
+        else:
+            logger.warning("ffmpeg sin libplacebo/zscale: HDR sin tonemapping")
+            _sdr_filter_cache = "format=yuv420p"
+    return _sdr_filter_cache
+
+
+def _available_filters() -> set[str]:
+    ffmpeg = find_binary("ffmpeg")
+    result = subprocess.run(
+        [ffmpeg, "-hide_banner", "-filters"],
+        capture_output=True, text=True, creationflags=CREATION_FLAGS,
+    )
+    names = set()
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        # formato: " T.C  nombre  V->V  descripción"
+        if len(parts) >= 3 and "->" in parts[2]:
+            names.add(parts[1])
+    return names
 
 
 def has_nvenc() -> bool:
@@ -158,6 +219,7 @@ def cut_clip(
     out_path: Path,
     *,
     exact: bool = False,
+    hdr: bool = False,
     cancel_event: threading.Event | None = None,
     progress_cb: Callable[[float], None] | None = None,
 ) -> None:
@@ -170,7 +232,12 @@ def cut_clip(
     """
     ffmpeg = find_binary("ffmpeg")
     duration = max(0.1, end - start)
-    codec = encode_args() if exact else ["-c", "copy", "-avoid_negative_ts", "make_zero"]
+    if exact:
+        # al recodificar, normalizar a SDR 8-bit (Windows no reproduce
+        # H.264 10-bit y el HDR sin tonemapping sale con colores lavados)
+        codec = ["-vf", sdr_prep_filter(hdr), *encode_args()]
+    else:
+        codec = ["-c", "copy", "-avoid_negative_ts", "make_zero"]
 
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "warning", "-y",
@@ -192,22 +259,26 @@ VERTICAL_WIDTH = 1080
 VERTICAL_HEIGHT = 1920
 
 
-def vertical_filter(style: str) -> str:
+def vertical_filter(style: str, prep: str = "format=yuv420p") -> str:
     """Cadena de filtros 16:9 -> 9:16 (1080x1920, válido para TikTok/Reels).
 
     - "crop": franja central escalada a pantalla completa.
     - "blur" (default): video completo centrado sobre su propia copia
       ampliada y difuminada rellenando arriba/abajo.
+
+    prep normaliza el origen antes de componer (tonemapping HDR->SDR y/o
+    8 bits) — ver sdr_prep_filter().
     """
     if style == "crop":
-        return f"crop=ih*9/16:ih,scale={VERTICAL_WIDTH}:{VERTICAL_HEIGHT}"
+        return f"{prep},crop=ih*9/16:ih,scale={VERTICAL_WIDTH}:{VERTICAL_HEIGHT}"
     # El fondo se difumina a resolución mínima (270x480) y luego se amplía:
     # mismo resultado visual que difuminar a 1080x1920 pero ~10x más barato.
     return (
-        "[0:v]scale=270:480:force_original_aspect_ratio=increase,"
+        f"[0:v]{prep},split=2[srca][srcb];"
+        "[srca]scale=270:480:force_original_aspect_ratio=increase,"
         "crop=270:480,boxblur=10,"
         f"scale={VERTICAL_WIDTH}:{VERTICAL_HEIGHT},setsar=1[bg];"
-        f"[0:v]scale={VERTICAL_WIDTH}:-2[fg];"
+        f"[srcb]scale={VERTICAL_WIDTH}:-2[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2"
     )
 
@@ -219,6 +290,7 @@ def cut_vertical_clip(
     out_path: Path,
     *,
     style: str = "blur",
+    hdr: bool = False,
     cancel_event: threading.Event | None = None,
     progress_cb: Callable[[float], None] | None = None,
 ) -> None:
@@ -229,7 +301,7 @@ def cut_vertical_clip(
     """
     ffmpeg = find_binary("ffmpeg")
     duration = max(0.1, end - start)
-    filt = vertical_filter(style)
+    filt = vertical_filter(style, prep=sdr_prep_filter(hdr))
     filter_args = ["-vf", filt] if style == "crop" else ["-filter_complex", filt]
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "warning", "-y",

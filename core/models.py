@@ -26,6 +26,11 @@ FORMAT_BOTH = "horizontal+vertical"     # ambos
 VERTICAL_BLUR = "blur"  # video completo centrado sobre fondo ampliado y difuminado
 VERTICAL_CROP = "crop"  # recorte de la franja central (pierde killfeed/minimapa)
 
+# Modos de compilatorio (JobConfig.compilation_mode)
+COMP_NONE = "none"  # solo clips individuales
+COMP_ALSO = "also"  # clips individuales + video compilatorio
+COMP_ONLY = "only"  # solo el compilatorio (los clips se borran tras unirlos)
+
 
 class EventKind(Enum):
     STAGE = auto()      # cambio de etapa del pipeline
@@ -62,7 +67,7 @@ class JobConfig:
     kill_threshold: float = 0.45  # umbral de candidatos de audio (0.30-0.80)
     output_format: str = FORMAT_HORIZONTAL  # FORMAT_HORIZONTAL | FORMAT_VERTICAL | FORMAT_BOTH
     vertical_style: str = VERTICAL_BLUR     # VERTICAL_BLUR | VERTICAL_CROP
-    make_compilation: bool = False          # además, unir todos los clips en un solo video
+    compilation_mode: str = COMP_NONE       # COMP_NONE | COMP_ALSO | COMP_ONLY
 
 
 @dataclass(frozen=True)

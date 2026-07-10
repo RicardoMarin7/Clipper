@@ -17,6 +17,7 @@ def export_clips(
     output_dir: Path,
     *,
     exact: bool,
+    hdr: bool = False,
     cancel_event: threading.Event,
     on_clip_done: Callable[[int, int, Path], None],
     on_clip_progress: Callable[[float], None] | None = None,
@@ -36,7 +37,8 @@ def export_clips(
         out_path = output_dir / file_manager.clip_filename(index, segment.start)
         ffmpeg_wrapper.cut_clip(
             video, segment.start, segment.end, out_path,
-            exact=exact, cancel_event=cancel_event, progress_cb=on_clip_progress,
+            exact=exact, hdr=hdr,
+            cancel_event=cancel_event, progress_cb=on_clip_progress,
         )
         exported.append(out_path)
         on_clip_done(index, total, out_path)
@@ -49,6 +51,7 @@ def export_vertical_clips(
     vertical_dir: Path,
     *,
     style: str,
+    hdr: bool = False,
     cancel_event: threading.Event,
     on_clip_done: Callable[[int, int, Path], None],
     on_clip_progress: Callable[[float], None] | None = None,
@@ -69,7 +72,8 @@ def export_vertical_clips(
         )
         ffmpeg_wrapper.cut_vertical_clip(
             video, segment.start, segment.end, out_path,
-            style=style, cancel_event=cancel_event, progress_cb=on_clip_progress,
+            style=style, hdr=hdr,
+            cancel_event=cancel_event, progress_cb=on_clip_progress,
         )
         exported.append(out_path)
         on_clip_done(index, total, out_path)

@@ -14,6 +14,8 @@ from pathlib import Path
 
 from core import audio_analyzer, clip_extractor, highlight_detector, sound_matcher, video_analyzer
 from core.models import (
+    COMP_ALSO,
+    COMP_ONLY,
     DETECT_BOTH,
     DETECT_INTENSITY,
     DETECT_KILLS,
@@ -168,9 +170,10 @@ class HighlightPipeline:
             #    El progreso se reparte entre el total de operaciones ffmpeg.
             include_h = config.output_format in (FORMAT_HORIZONTAL, FORMAT_BOTH)
             include_v = config.output_format in (FORMAT_VERTICAL, FORMAT_BOTH)
+            make_comp = config.compilation_mode in (COMP_ALSO, COMP_ONLY)
             ops_total = (
                 len(segments) * (int(include_h) + int(include_v))
-                + (int(include_h) + int(include_v)) * int(config.make_compilation)
+                + (int(include_h) + int(include_v)) * int(make_comp)
             )
             ops_done = 0
 
@@ -188,9 +191,16 @@ class HighlightPipeline:
                 )
                 self._progress(percent)
 
+            is_hdr = False
             if include_v or config.exact_cut:
                 encoder = "NVENC (GPU)" if ffmpeg_wrapper.has_nvenc() else "libx264 (CPU)"
                 self._log(f"Recodificación con encoder: {encoder}")
+                is_hdr = ffmpeg_wrapper.probe_is_hdr(config.video_path)
+                if is_hdr:
+                    self._log(
+                        "Video HDR detectado: los clips recodificados se "
+                        "convertirán a SDR (tonemapping) para máxima compatibilidad"
+                    )
 
             exported_h: list[Path] = []
             exported_v: list[Path] = []
@@ -201,6 +211,7 @@ class HighlightPipeline:
                 exported_h = clip_extractor.export_clips(
                     config.video_path, segments, output_dir,
                     exact=config.exact_cut,
+                    hdr=is_hdr,
                     cancel_event=self._cancel,
                     on_clip_done=lambda i, t, p: (
                         bump(f"Exportando clips ({i}/{t})"),
@@ -216,6 +227,7 @@ class HighlightPipeline:
                 exported_v = clip_extractor.export_vertical_clips(
                     config.video_path, segments, vertical_dir,
                     style=config.vertical_style,
+                    hdr=is_hdr,
                     cancel_event=self._cancel,
                     on_clip_done=lambda i, t, p: (
                         bump(f"Exportando clips verticales ({i}/{t})"),
@@ -225,7 +237,7 @@ class HighlightPipeline:
                 )
                 files_created += len(exported_v)
 
-            if config.make_compilation:
+            if make_comp:
                 total_clip_seconds = sum(s.duration for s in segments)
                 if exported_h:
                     self._check_cancel()
@@ -247,6 +259,13 @@ class HighlightPipeline:
                     bump("Creando compilatorio vertical")
                     self._log(f"Compilatorio vertical: {comp_v.name}", "SUCCESS")
                     files_created += 1
+
+            if config.compilation_mode == COMP_ONLY:
+                # Los clips solo existieron para construir el compilatorio
+                for clip in (*exported_h, *exported_v):
+                    clip.unlink(missing_ok=True)
+                files_created -= len(exported_h) + len(exported_v)
+                self._log("Clips individuales eliminados (modo solo compilatorio)")
 
             self._done(files_created, output_dir)
 
