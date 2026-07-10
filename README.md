@@ -49,8 +49,9 @@ python main.py
 1. Selecciona el video de la partida (`.mp4`, `.mkv`, `.mov`, `.avi`).
 2. La carpeta de salida se autocompleta (`<carpeta_del_video>/highlights/`).
 3. Elige el modo de detección (**Solo kills** / **Kills + intensidad** /
-   **Solo intensidad**), la sensibilidad (solo aplica a intensidad) y el
-   padding antes/después de cada evento.
+   **Solo intensidad**), la sensibilidad (solo aplica a intensidad), el
+   **umbral de kills** (0.30–0.80; bájalo si faltan kills, súbelo si aparecen
+   clips falsos) y el padding antes/después de cada evento.
 4. Opcional: marca **Corte exacto** para clips que empiezan exactamente en el
    momento detectado (recodifica con NVENC si tienes GPU NVIDIA; si no, x264).
    Sin marcar, el corte es instantáneo y sin pérdida de calidad (stream copy),

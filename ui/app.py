@@ -62,8 +62,8 @@ class ClipperApp(ctk.CTk):
         super().__init__()
 
         self.title("Clipper — Battlefield 6 Highlight Extractor")
-        self.geometry("760x700")
-        self.minsize(680, 620)
+        self.geometry("1024x1024")
+        self.minsize(1024, 1024)
 
         self._event_queue: queue.Queue[ProgressEvent] = queue.Queue()
         self._cancel_event: threading.Event | None = None
