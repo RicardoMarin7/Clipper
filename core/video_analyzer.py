@@ -34,7 +34,10 @@ BURST_FPS = 3
 
 # Regla de fusión audio+visual (calibrada con ground truth real):
 VISUAL_CONFIRM = 0.80     # visual alto: kill confirmada por sí sola
-VISUAL_WEAK = 0.62        # visual medio (UI breve: trade-kills, confirm tardía)
+# La pantalla de muerte propia también contiene una calavera (~0.68) y el
+# sonido de "te mataron" es de la misma familia: el rescate débil exige
+# visual > 0.72 para no confundir tus muertes con kills.
+VISUAL_WEAK = 0.72        # visual medio (UI breve: trade-kills, confirm tardía)
 AUDIO_STRONG = 0.60       # ...aceptado solo si el audio también fue claro
 _MIN_PATCH_STD = 4.0      # suelo de contraste: parches planos no puntúan
 

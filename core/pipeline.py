@@ -94,14 +94,23 @@ class HighlightPipeline:
                     if skull is not None and len(kill_times):
                         # Verificación visual: mirar ~8 frames por candidato
                         # buscando la calavera de la UI de kill
-                        self._stage("Verificando kills en video", EXTRACT_END)
+                        self._log(
+                            f"Verificando {len(kill_times)} candidatos en video "
+                            f"(~{len(kill_times)} s)…"
+                        )
+                        self._stage(
+                            f"Verificando kills en video (0/{len(kill_times)})",
+                            EXTRACT_END,
+                        )
                         span = ANALYZE_END - EXTRACT_END
                         confirmed = video_analyzer.verify_kill_events(
                             config.video_path, kill_times, kill_scores, skull,
                             cancel_event=self._cancel,
-                            progress_cb=lambda i, n: self._progress(
-                                EXTRACT_END + span * i / n
-                            ),
+                            progress_cb=lambda i, n: self._emit(ProgressEvent(
+                                EventKind.STAGE,
+                                stage=f"Verificando kills en video ({i}/{n})",
+                                percent=EXTRACT_END + span * i / n,
+                            )),
                         )
                         kill_times = kill_times[confirmed]
                         kill_scores = kill_scores[confirmed]
