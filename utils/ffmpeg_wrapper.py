@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 from typing import Callable
@@ -93,7 +94,11 @@ def probe_duration(video: Path) -> float:
 
 
 def has_nvenc() -> bool:
-    """True si el ffmpeg disponible incluye el encoder h264_nvenc. Cacheado."""
+    """True si h264_nvenc puede codificar de verdad en esta máquina. Cacheado.
+
+    Prueba funcional (codificar un frame negro a null): que el encoder esté
+    en la lista no garantiza que haya GPU NVIDIA con drivers.
+    """
     global _nvenc_available
     if _nvenc_available is None:
         ffmpeg = find_binary("ffmpeg")
@@ -101,11 +106,29 @@ def has_nvenc() -> bool:
             _nvenc_available = False
         else:
             result = subprocess.run(
-                [ffmpeg, "-hide_banner", "-encoders"],
+                [
+                    ffmpeg, "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=black:s=256x256:d=0.1",
+                    "-c:v", "h264_nvenc", "-f", "null", "-",
+                ],
                 capture_output=True, text=True, creationflags=CREATION_FLAGS,
             )
-            _nvenc_available = "h264_nvenc" in result.stdout
+            _nvenc_available = result.returncode == 0
+            logger.info("NVENC disponible: %s", _nvenc_available)
     return _nvenc_available
+
+
+def encode_args() -> list[str]:
+    """Argumentos de recodificación de alta calidad: NVENC si hay GPU, si no x264.
+
+    En x264 se usa veryfast: a crf 18 la diferencia visual con fast es
+    imperceptible y codifica ~2x más rápido (importante sin GPU).
+    """
+    if has_nvenc():
+        video = ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "19"]
+    else:
+        video = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"]
+    return [*video, "-c:a", "aac", "-b:a", "192k"]
 
 
 def extract_audio(
@@ -136,6 +159,7 @@ def cut_clip(
     *,
     exact: bool = False,
     cancel_event: threading.Event | None = None,
+    progress_cb: Callable[[float], None] | None = None,
 ) -> None:
     """Corta [start, end) del video.
 
@@ -146,14 +170,7 @@ def cut_clip(
     """
     ffmpeg = find_binary("ffmpeg")
     duration = max(0.1, end - start)
-    if exact:
-        if has_nvenc():
-            codec = ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "19"]
-        else:
-            codec = ["-c:v", "libx264", "-preset", "fast", "-crf", "18"]
-        codec += ["-c:a", "aac", "-b:a", "192k"]
-    else:
-        codec = ["-c", "copy", "-avoid_negative_ts", "make_zero"]
+    codec = encode_args() if exact else ["-c", "copy", "-avoid_negative_ts", "make_zero"]
 
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "warning", "-y",
@@ -165,10 +182,113 @@ def cut_clip(
         str(out_path),
     ]
     try:
-        _run(cmd, cancel_event=cancel_event)
+        _run(cmd, cancel_event=cancel_event, progress_cb=progress_cb, total_duration=duration)
     except (JobCancelled, FFmpegError):
         out_path.unlink(missing_ok=True)  # nunca dejar clips a medias en la salida
         raise
+
+
+VERTICAL_WIDTH = 1080
+VERTICAL_HEIGHT = 1920
+
+
+def vertical_filter(style: str) -> str:
+    """Cadena de filtros 16:9 -> 9:16 (1080x1920, válido para TikTok/Reels).
+
+    - "crop": franja central escalada a pantalla completa.
+    - "blur" (default): video completo centrado sobre su propia copia
+      ampliada y difuminada rellenando arriba/abajo.
+    """
+    if style == "crop":
+        return f"crop=ih*9/16:ih,scale={VERTICAL_WIDTH}:{VERTICAL_HEIGHT}"
+    # El fondo se difumina a resolución mínima (270x480) y luego se amplía:
+    # mismo resultado visual que difuminar a 1080x1920 pero ~10x más barato.
+    return (
+        "[0:v]scale=270:480:force_original_aspect_ratio=increase,"
+        "crop=270:480,boxblur=10,"
+        f"scale={VERTICAL_WIDTH}:{VERTICAL_HEIGHT},setsar=1[bg];"
+        f"[0:v]scale={VERTICAL_WIDTH}:-2[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2"
+    )
+
+
+def cut_vertical_clip(
+    video: Path,
+    start: float,
+    end: float,
+    out_path: Path,
+    *,
+    style: str = "blur",
+    cancel_event: threading.Event | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+) -> None:
+    """Corta [start, end) y lo convierte a vertical 9:16 en una sola pasada.
+
+    Siempre recodifica (NVENC/x264): el filtrado lo exige, y de regalo el
+    corte es exacto al frame.
+    """
+    ffmpeg = find_binary("ffmpeg")
+    duration = max(0.1, end - start)
+    filt = vertical_filter(style)
+    filter_args = ["-vf", filt] if style == "crop" else ["-filter_complex", filt]
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "warning", "-y",
+        "-ss", f"{start:.3f}",
+        "-i", str(video),
+        "-t", f"{duration:.3f}",
+        *filter_args,
+        *encode_args(),
+        "-progress", "pipe:1", "-nostats",
+        str(out_path),
+    ]
+    try:
+        _run(cmd, cancel_event=cancel_event, progress_cb=progress_cb, total_duration=duration)
+    except (JobCancelled, FFmpegError):
+        out_path.unlink(missing_ok=True)
+        raise
+
+
+def build_concat_list(clips: list[Path]) -> str:
+    """Contenido del archivo de lista para el concat demuxer de ffmpeg."""
+    lines = []
+    for clip in clips:
+        path = Path(clip).resolve().as_posix().replace("'", "'\\''")
+        lines.append(f"file '{path}'")
+    return "\n".join(lines) + "\n"
+
+
+def concat_clips(
+    clips: list[Path],
+    out_path: Path,
+    *,
+    cancel_event: threading.Event | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+    total_duration: float | None = None,
+) -> None:
+    """Une clips (mismo codec/resolución) en un solo video sin recodificar."""
+    ffmpeg = find_binary("ffmpeg")
+    handle = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".txt", delete=False, encoding="utf-8"
+    )
+    try:
+        handle.write(build_concat_list(clips))
+        handle.close()
+        cmd = [
+            ffmpeg, "-hide_banner", "-loglevel", "warning", "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", handle.name,
+            "-c", "copy",
+            "-progress", "pipe:1", "-nostats",
+            str(out_path),
+        ]
+        try:
+            _run(cmd, cancel_event=cancel_event,
+                 progress_cb=progress_cb, total_duration=total_duration)
+        except (JobCancelled, FFmpegError):
+            out_path.unlink(missing_ok=True)
+            raise
+    finally:
+        Path(handle.name).unlink(missing_ok=True)
 
 
 def _run(

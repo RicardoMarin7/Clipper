@@ -19,7 +19,7 @@ class LogConsole(ctk.CTkFrame):
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text="④ REGISTRO", font=theme.FONT_SECTION, anchor="w").grid(
+        ctk.CTkLabel(header, text="⑤ REGISTRO", font=theme.FONT_SECTION, anchor="w").grid(
             row=0, column=0, sticky="w"
         )
         ctk.CTkButton(

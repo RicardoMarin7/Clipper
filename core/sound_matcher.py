@@ -25,7 +25,10 @@ N_FFT = 512                    # ventanas de 32 ms
 HOP = 160                      # salto de 10 ms
 HOP_SECONDS = HOP / SAMPLE_RATE
 CHUNK_FRAMES = 16384           # ~2.7 min de audio por trozo (memoria acotada)
-DEFAULT_THRESHOLD = 0.50       # ZNCC mínima para aceptar un match (rango -1..1)
+# Calibrado con gameplay real (partida BF6 de 6:43 verificada frame a frame):
+# kills reales puntúan 0.45-0.75; el ruido de combate queda por debajo de 0.45
+# y en 0.45-0.55 aparecen eventos parecidos ("equipamiento destruido").
+DEFAULT_THRESHOLD = 0.55       # ZNCC mínima para aceptar un match (rango -1..1)
 MIN_SEPARATION_SECONDS = 0.6   # matches más cercanos son el mismo evento
 _TRIM_LEVEL = 0.02             # recorte de silencio en los bordes de la plantilla
 

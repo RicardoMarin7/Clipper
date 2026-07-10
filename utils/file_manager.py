@@ -35,12 +35,12 @@ def ensure_output_dir(path: str | Path) -> Path:
     return out
 
 
-def clip_filename(index: int, start_seconds: float) -> str:
+def clip_filename(index: int, start_seconds: float, suffix: str = "") -> str:
     """Nombre estable y ordenable: highlight_03_00-17-42.mp4 (hh-mm-ss del video)."""
     total = int(start_seconds)
     h, rem = divmod(total, 3600)
     m, s = divmod(rem, 60)
-    return f"highlight_{index:02d}_{h:02d}-{m:02d}-{s:02d}.mp4"
+    return f"highlight_{index:02d}_{h:02d}-{m:02d}-{s:02d}{suffix}.mp4"
 
 
 def format_timestamp(seconds: float) -> str:

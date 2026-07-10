@@ -17,6 +17,15 @@ DETECT_KILLS = "kills"          # solo sonidos de kill (template matching)
 DETECT_BOTH = "both"            # kills + picos de intensidad
 DETECT_INTENSITY = "intensity"  # solo picos de intensidad (RMS)
 
+# Formatos de salida (JobConfig.output_format)
+FORMAT_HORIZONTAL = "horizontal"        # clips tal cual (stream copy / corte exacto)
+FORMAT_VERTICAL = "vertical"            # 9:16 1080x1920 (TikTok / Reels IG y FB)
+FORMAT_BOTH = "horizontal+vertical"     # ambos
+
+# Estilos de conversión a vertical (JobConfig.vertical_style)
+VERTICAL_BLUR = "blur"  # video completo centrado sobre fondo ampliado y difuminado
+VERTICAL_CROP = "crop"  # recorte de la franja central (pierde killfeed/minimapa)
+
 
 class EventKind(Enum):
     STAGE = auto()      # cambio de etapa del pipeline
@@ -50,7 +59,10 @@ class JobConfig:
     post_padding: float = 5.0   # segundos después del pico
     exact_cut: bool = False     # False = stream copy, True = recodificar (NVENC/x264)
     detection_mode: str = DETECT_BOTH  # DETECT_KILLS | DETECT_BOTH | DETECT_INTENSITY
-    kill_threshold: float = 0.50  # ZNCC mínima para aceptar un match de kill (0.30-0.80)
+    kill_threshold: float = 0.55  # ZNCC mínima para aceptar un match de kill (0.30-0.80)
+    output_format: str = FORMAT_HORIZONTAL  # FORMAT_HORIZONTAL | FORMAT_VERTICAL | FORMAT_BOTH
+    vertical_style: str = VERTICAL_BLUR     # VERTICAL_BLUR | VERTICAL_CROP
+    make_compilation: bool = False          # además, unir todos los clips en un solo video
 
 
 @dataclass(frozen=True)

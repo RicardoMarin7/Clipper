@@ -21,6 +21,11 @@ from core.models import (
     DETECT_BOTH,
     DETECT_INTENSITY,
     DETECT_KILLS,
+    FORMAT_BOTH,
+    FORMAT_HORIZONTAL,
+    FORMAT_VERTICAL,
+    VERTICAL_BLUR,
+    VERTICAL_CROP,
     EventKind,
     JobConfig,
     ProgressEvent,
@@ -45,6 +50,19 @@ MODE_LABELS = {
     "Solo intensidad": DETECT_INTENSITY,
 }
 MODE_BY_VALUE = {value: label for label, value in MODE_LABELS.items()}
+
+FORMAT_LABELS = {
+    "Horizontal": FORMAT_HORIZONTAL,
+    "Vertical 9:16": FORMAT_VERTICAL,
+    "Ambos": FORMAT_BOTH,
+}
+FORMAT_BY_VALUE = {value: label for label, value in FORMAT_LABELS.items()}
+
+STYLE_LABELS = {
+    "Fondo difuminado": VERTICAL_BLUR,
+    "Recorte centrado": VERTICAL_CROP,
+}
+STYLE_BY_VALUE = {value: label for label, value in STYLE_LABELS.items()}
 
 
 class UIState(Enum):
@@ -84,7 +102,7 @@ class ClipperApp(ctk.CTk):
     # ------------------------------------------------------------- layout
     def _build_layout(self) -> None:
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(4, weight=1)  # solo el registro absorbe el resize
+        self.grid_rowconfigure(5, weight=1)  # solo el registro absorbe el resize
 
         ctk.CTkLabel(
             self, text="🎬 CLIPPER — Battlefield 6 Highlight Extractor",
@@ -149,7 +167,7 @@ class ClipperApp(ctk.CTk):
         ctk.CTkLabel(
             detection, text="Umbral de kills", width=150, anchor="w", font=theme.FONT_UI
         ).grid(row=4, column=0, padx=(theme.PAD_X, 8), pady=4, sticky="w")
-        self._kill_threshold = tk.DoubleVar(value=0.50)
+        self._kill_threshold = tk.DoubleVar(value=0.55)
         self._threshold_slider = ctk.CTkSlider(
             detection, from_=0.30, to=0.80, number_of_steps=10,
             variable=self._kill_threshold,
@@ -189,11 +207,46 @@ class ClipperApp(ctk.CTk):
             row=7, column=0, columnspan=4, padx=theme.PAD_X, pady=(4, theme.PAD_Y), sticky="w"
         )
 
-        # ③ EJECUCIÓN ------------------------------------------------------
+        # ③ SALIDA ---------------------------------------------------------
+        output_frame = ctk.CTkFrame(self)
+        output_frame.grid(row=3, column=0, padx=theme.PAD_X, pady=theme.PAD_Y, sticky="ew")
+        output_frame.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(output_frame, text="③ SALIDA", font=theme.FONT_SECTION, anchor="w").grid(
+            row=0, column=0, columnspan=2, padx=theme.PAD_X, pady=(theme.PAD_Y, 0), sticky="w"
+        )
+        ctk.CTkLabel(
+            output_frame, text="Formato", width=150, anchor="w", font=theme.FONT_UI
+        ).grid(row=1, column=0, padx=(theme.PAD_X, 8), pady=4, sticky="w")
+        self._format_selector = ctk.CTkSegmentedButton(
+            output_frame, values=list(FORMAT_LABELS), font=theme.FONT_UI,
+            command=lambda _v: self._update_vertical_style_state(),
+        )
+        self._format_selector.set(FORMAT_BY_VALUE[FORMAT_HORIZONTAL])
+        self._format_selector.grid(row=1, column=1, pady=4, sticky="w")
+
+        ctk.CTkLabel(
+            output_frame, text="Estilo vertical", width=150, anchor="w", font=theme.FONT_UI
+        ).grid(row=2, column=0, padx=(theme.PAD_X, 8), pady=4, sticky="w")
+        self._style_selector = ctk.CTkSegmentedButton(
+            output_frame, values=list(STYLE_LABELS), font=theme.FONT_UI,
+        )
+        self._style_selector.set(STYLE_BY_VALUE[VERTICAL_BLUR])
+        self._style_selector.grid(row=2, column=1, pady=4, sticky="w")
+
+        self._make_compilation = tk.BooleanVar(value=False)
+        self._compilation_checkbox = ctk.CTkCheckBox(
+            output_frame, text="Crear también un video compilatorio (todos los clips unidos)",
+            variable=self._make_compilation, font=theme.FONT_UI,
+        )
+        self._compilation_checkbox.grid(
+            row=3, column=0, columnspan=2, padx=theme.PAD_X, pady=(4, theme.PAD_Y), sticky="w"
+        )
+
+        # ④ EJECUCIÓN ------------------------------------------------------
         execution = ctk.CTkFrame(self)
-        execution.grid(row=3, column=0, padx=theme.PAD_X, pady=theme.PAD_Y, sticky="ew")
+        execution.grid(row=4, column=0, padx=theme.PAD_X, pady=theme.PAD_Y, sticky="ew")
         execution.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(execution, text="③ EJECUCIÓN", font=theme.FONT_SECTION, anchor="w").grid(
+        ctk.CTkLabel(execution, text="④ EJECUCIÓN", font=theme.FONT_SECTION, anchor="w").grid(
             row=0, column=0, padx=theme.PAD_X, pady=(theme.PAD_Y, 0), sticky="w"
         )
         buttons = ctk.CTkFrame(execution, fg_color="transparent")
@@ -222,13 +275,13 @@ class ClipperApp(ctk.CTk):
             row=2, column=0, padx=theme.PAD_X, pady=(4, theme.PAD_Y), sticky="ew"
         )
 
-        # ④ REGISTRO -------------------------------------------------------
+        # ⑤ REGISTRO -------------------------------------------------------
         self._log_console = LogConsole(self)
-        self._log_console.grid(row=4, column=0, padx=theme.PAD_X, pady=theme.PAD_Y, sticky="nsew")
+        self._log_console.grid(row=5, column=0, padx=theme.PAD_X, pady=theme.PAD_Y, sticky="nsew")
 
         # Status bar --------------------------------------------------------
         self._status = ctk.CTkLabel(self, text="Listo", anchor="w", font=theme.FONT_UI)
-        self._status.grid(row=5, column=0, padx=theme.PAD_X, pady=(0, theme.PAD_Y), sticky="ew")
+        self._status.grid(row=6, column=0, padx=theme.PAD_X, pady=(0, theme.PAD_Y), sticky="ew")
 
     # -------------------------------------------------- máquina de estados
     def _set_state(self, state: UIState) -> None:
@@ -245,6 +298,9 @@ class ClipperApp(ctk.CTk):
         self._pre_entry.configure(state=widget_state)
         self._post_entry.configure(state=widget_state)
         self._exact_checkbox.configure(state=widget_state)
+        self._format_selector.configure(state=widget_state)
+        self._compilation_checkbox.configure(state=widget_state)
+        self._update_vertical_style_state()
 
         self._start_button.configure(
             text="▶  Reintentar" if state is UIState.ERROR else "▶  Extraer Highlights"
@@ -289,6 +345,9 @@ class ClipperApp(ctk.CTk):
             exact_cut=bool(self._exact_cut.get()),
             detection_mode=MODE_LABELS.get(self._mode_selector.get(), DETECT_BOTH),
             kill_threshold=round(float(self._kill_threshold.get()), 2),
+            output_format=FORMAT_LABELS.get(self._format_selector.get(), FORMAT_HORIZONTAL),
+            vertical_style=STYLE_LABELS.get(self._style_selector.get(), VERTICAL_BLUR),
+            make_compilation=bool(self._make_compilation.get()),
         )
 
         self._progress_panel.reset()
@@ -382,6 +441,13 @@ class ClipperApp(ctk.CTk):
     def _update_threshold_label(self) -> None:
         self._threshold_label.configure(text=f"{self._kill_threshold.get():.2f}")
 
+    def _update_vertical_style_state(self) -> None:
+        """El estilo vertical solo tiene sentido si el formato incluye vertical."""
+        form_enabled = self._state in (UIState.IDLE, UIState.DONE, UIState.ERROR)
+        output_format = FORMAT_LABELS.get(self._format_selector.get(), FORMAT_HORIZONTAL)
+        enabled = form_enabled and output_format != FORMAT_HORIZONTAL
+        self._style_selector.configure(state="normal" if enabled else "disabled")
+
     def _update_sensitivity_hint(self) -> None:
         mode = MODE_LABELS.get(self._mode_selector.get(), DETECT_BOTH)
         if mode == DETECT_KILLS:
@@ -430,6 +496,13 @@ class ClipperApp(ctk.CTk):
         self._kill_threshold.set(
             min(0.80, max(0.30, float(settings["kill_threshold"])))
         )
+        self._format_selector.set(
+            FORMAT_BY_VALUE.get(settings["output_format"], FORMAT_BY_VALUE[FORMAT_HORIZONTAL])
+        )
+        self._style_selector.set(
+            STYLE_BY_VALUE.get(settings["vertical_style"], STYLE_BY_VALUE[VERTICAL_BLUR])
+        )
+        self._make_compilation.set(bool(settings["make_compilation"]))
         self._update_threshold_label()
         self._update_sensitivity_hint()
 
@@ -444,6 +517,9 @@ class ClipperApp(ctk.CTk):
             "exact_cut": bool(self._exact_cut.get()),
             "detection_mode": MODE_LABELS.get(self._mode_selector.get(), DETECT_BOTH),
             "kill_threshold": round(float(self._kill_threshold.get()), 2),
+            "output_format": FORMAT_LABELS.get(self._format_selector.get(), FORMAT_HORIZONTAL),
+            "vertical_style": STYLE_LABELS.get(self._style_selector.get(), VERTICAL_BLUR),
+            "make_compilation": bool(self._make_compilation.get()),
         })
 
     def _on_close(self) -> None:

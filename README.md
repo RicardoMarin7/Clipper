@@ -52,6 +52,13 @@ python main.py
    **Solo intensidad**), la sensibilidad (solo aplica a intensidad), el
    **umbral de kills** (0.30–0.80; bájalo si faltan kills, súbelo si aparecen
    clips falsos) y el padding antes/después de cada evento.
+4. En **③ Salida** elige el formato: **Horizontal** (original),
+   **Vertical 9:16** (1080×1920, válido para TikTok y Reels de
+   Instagram/Facebook — las tres plataformas usan el mismo formato) o
+   **Ambos**. Los verticales salen a la subcarpeta `vertical/` con estilo
+   **fondo difuminado** (no pierde killfeed) o **recorte centrado**.
+   Marca **video compilatorio** para generar además un único video con todos
+   los clips unidos (sin recodificar, cortes duros).
 4. Opcional: marca **Corte exacto** para clips que empiezan exactamente en el
    momento detectado (recodifica con NVENC si tienes GPU NVIDIA; si no, x264).
    Sin marcar, el corte es instantáneo y sin pérdida de calidad (stream copy),
