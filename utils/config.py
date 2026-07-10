@@ -21,6 +21,7 @@ DEFAULTS: dict = {
     "output_format": "horizontal",
     "vertical_style": "blur",
     "compilation_mode": "none",
+    "transitions": False,
 }
 
 

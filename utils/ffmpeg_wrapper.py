@@ -258,11 +258,18 @@ def cut_clip(
 VERTICAL_WIDTH = 1080
 VERTICAL_HEIGHT = 1920
 
+# Crossfade entre clips del compilatorio: corto para que el cambio sea
+# suave sin sentirse un "efecto"
+TRANSITION_SECONDS = 0.35
+
 
 def vertical_filter(style: str, prep: str = "format=yuv420p") -> str:
     """Cadena de filtros 16:9 -> 9:16 (1080x1920, válido para TikTok/Reels).
 
-    - "crop": franja central escalada a pantalla completa.
+    - "crop": franja central escalada a pantalla completa (máximo tamaño,
+      máxima pérdida lateral).
+    - "zoom": recorte 3:4 escalado a 1080x1440 (75% de la altura) sobre
+      bandas difuminadas — la acción grande sin recortar tanto.
     - "blur" (default): video completo centrado sobre su propia copia
       ampliada y difuminada rellenando arriba/abajo.
 
@@ -271,14 +278,19 @@ def vertical_filter(style: str, prep: str = "format=yuv420p") -> str:
     """
     if style == "crop":
         return f"{prep},crop=ih*9/16:ih,scale={VERTICAL_WIDTH}:{VERTICAL_HEIGHT}"
-    # El fondo se difumina a resolución mínima (270x480) y luego se amplía:
-    # mismo resultado visual que difuminar a 1080x1920 pero ~10x más barato.
+    # Estilos con fondo: el fondo se difumina a resolución mínima (270x480)
+    # y luego se amplía — mismo resultado visual que difuminar a 1080x1920
+    # pero ~10x más barato.
+    if style == "zoom":
+        foreground = f"crop=ih*3/4:ih,scale={VERTICAL_WIDTH}:{VERTICAL_WIDTH * 4 // 3}"
+    else:  # blur
+        foreground = f"scale={VERTICAL_WIDTH}:-2"
     return (
         f"[0:v]{prep},split=2[srca][srcb];"
         "[srca]scale=270:480:force_original_aspect_ratio=increase,"
         "crop=270:480,boxblur=10,"
         f"scale={VERTICAL_WIDTH}:{VERTICAL_HEIGHT},setsar=1[bg];"
-        f"[srcb]scale={VERTICAL_WIDTH}:-2[fg];"
+        f"[srcb]{foreground}[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2"
     )
 
@@ -361,6 +373,99 @@ def concat_clips(
             raise
     finally:
         Path(handle.name).unlink(missing_ok=True)
+
+
+def probe_fps(video: Path) -> float:
+    ffprobe = find_binary("ffprobe")
+    result = subprocess.run(
+        [
+            ffprobe, "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(video),
+        ],
+        capture_output=True, text=True, creationflags=CREATION_FLAGS,
+    )
+    try:
+        num, _, den = result.stdout.strip().partition("/")
+        return float(num) / float(den or 1)
+    except (ValueError, ZeroDivisionError):
+        return 60.0
+
+
+def build_transition_graph(
+    durations: list[float],
+    *,
+    prep: str,
+    fps: float,
+    transition_seconds: float = TRANSITION_SECONDS,
+) -> tuple[str, str, str, float]:
+    """Grafo filter_complex que encadena N clips con crossfade.
+
+    Devuelve (grafo, etiqueta_video_final, etiqueta_audio_final,
+    duración_total). Cada entrada se normaliza (prep + fps + timebase) porque
+    xfade exige streams homogéneos; el audio se encadena con acrossfade.
+    """
+    td = min(transition_seconds, min(durations) / 2)
+    parts = []
+    for i in range(len(durations)):
+        parts.append(f"[{i}:v]{prep},fps={fps:g},settb=AVTB[v{i}]")
+        parts.append(
+            f"[{i}:a]aformat=sample_fmts=fltp:sample_rates=48000:"
+            f"channel_layouts=stereo[a{i}]"
+        )
+    v_prev, a_prev = "v0", "a0"
+    offset = 0.0
+    for i in range(1, len(durations)):
+        offset += durations[i - 1] - td
+        v_out, a_out = f"vx{i}", f"ax{i}"
+        parts.append(
+            f"[{v_prev}][v{i}]xfade=transition=fade:"
+            f"duration={td:.3f}:offset={offset:.3f}[{v_out}]"
+        )
+        parts.append(f"[{a_prev}][a{i}]acrossfade=d={td:.3f}[{a_out}]")
+        v_prev, a_prev = v_out, a_out
+    # formato final explícito: sin esto el encoder puede negociar 4:4:4,
+    # que muchos decodificadores hardware de móvil no soportan
+    parts.append(f"[{v_prev}]format=yuv420p[vout]")
+    total = sum(durations) - td * (len(durations) - 1)
+    return ";".join(parts), "vout", a_prev, total
+
+
+def concat_with_transitions(
+    clips: list[Path],
+    out_path: Path,
+    *,
+    hdr: bool = False,
+    cancel_event: threading.Event | None = None,
+    progress_cb: Callable[[float], None] | None = None,
+) -> None:
+    """Une clips con crossfade corto entre ellos. Recodifica (NVENC/x264).
+
+    Con un solo clip cae al concat normal sin recodificar.
+    """
+    if len(clips) < 2:
+        concat_clips(clips, out_path, cancel_event=cancel_event)
+        return
+    ffmpeg = find_binary("ffmpeg")
+    durations = [probe_duration(clip) for clip in clips]
+    graph, v_label, a_label, total = build_transition_graph(
+        durations, prep=sdr_prep_filter(hdr), fps=probe_fps(clips[0])
+    )
+    cmd = [
+        ffmpeg, "-hide_banner", "-loglevel", "warning", "-y",
+        *(arg for clip in clips for arg in ("-i", str(clip))),
+        "-filter_complex", graph,
+        "-map", f"[{v_label}]", "-map", f"[{a_label}]",
+        *encode_args(),
+        "-progress", "pipe:1", "-nostats",
+        str(out_path),
+    ]
+    try:
+        _run(cmd, cancel_event=cancel_event, progress_cb=progress_cb, total_duration=total)
+    except (JobCancelled, FFmpegError):
+        out_path.unlink(missing_ok=True)
+        raise
 
 
 def _run(

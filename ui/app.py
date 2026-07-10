@@ -29,6 +29,7 @@ from core.models import (
     FORMAT_VERTICAL,
     VERTICAL_BLUR,
     VERTICAL_CROP,
+    VERTICAL_ZOOM,
     EventKind,
     JobConfig,
     ProgressEvent,
@@ -63,6 +64,7 @@ FORMAT_BY_VALUE = {value: label for label, value in FORMAT_LABELS.items()}
 
 STYLE_LABELS = {
     "Fondo difuminado": VERTICAL_BLUR,
+    "Zoom + difuminado": VERTICAL_ZOOM,
     "Recorte centrado": VERTICAL_CROP,
 }
 STYLE_BY_VALUE = {value: label for label, value in STYLE_LABELS.items()}
@@ -278,12 +280,22 @@ class ClipperApp(ctk.CTk):
         self._comp_radios = [
             ctk.CTkRadioButton(
                 comp_row, text=label, variable=self._comp_var, value=label,
-                font=theme.FONT_UI,
+                font=theme.FONT_UI, command=self._update_transitions_state,
             )
             for label in COMP_LABELS
         ]
         for radio in self._comp_radios:
             radio.pack(side="left", padx=(0, 18))
+
+        self._transitions = tk.BooleanVar(value=False)
+        self._transitions_checkbox = ctk.CTkCheckBox(
+            output_frame,
+            text="Transiciones suaves entre clips (crossfade 0.35 s, recodifica el compilatorio)",
+            variable=self._transitions, font=theme.FONT_UI,
+        )
+        self._transitions_checkbox.grid(
+            row=4, column=0, columnspan=2, padx=theme.PAD_X, pady=(0, theme.PAD_Y), sticky="w"
+        )
 
         # ④ EJECUCIÓN ------------------------------------------------------
         execution = ctk.CTkFrame(self)
@@ -345,6 +357,7 @@ class ClipperApp(ctk.CTk):
         for radio in self._comp_radios:
             radio.configure(state=widget_state)
         self._update_vertical_style_state()
+        self._update_transitions_state()
 
         self._start_button.configure(
             text="▶  Reintentar" if state is UIState.ERROR else "▶  Extraer Highlights"
@@ -392,6 +405,7 @@ class ClipperApp(ctk.CTk):
             output_format=FORMAT_LABELS.get(self._format_selector.get(), FORMAT_HORIZONTAL),
             vertical_style=STYLE_LABELS.get(self._style_selector.get(), VERTICAL_BLUR),
             compilation_mode=COMP_LABELS.get(self._comp_var.get(), COMP_NONE),
+            transitions=bool(self._transitions.get()),
         )
 
         self._progress_panel.reset()
@@ -492,6 +506,13 @@ class ClipperApp(ctk.CTk):
         enabled = form_enabled and output_format != FORMAT_HORIZONTAL
         self._style_selector.configure(state="normal" if enabled else "disabled")
 
+    def _update_transitions_state(self) -> None:
+        """Las transiciones solo aplican si se va a crear un compilatorio."""
+        form_enabled = self._state in (UIState.IDLE, UIState.DONE, UIState.ERROR)
+        comp_mode = COMP_LABELS.get(self._comp_var.get(), COMP_NONE)
+        enabled = form_enabled and comp_mode != COMP_NONE
+        self._transitions_checkbox.configure(state="normal" if enabled else "disabled")
+
     def _update_sensitivity_hint(self) -> None:
         mode = MODE_LABELS.get(self._mode_selector.get(), DETECT_BOTH)
         if mode == DETECT_KILLS:
@@ -549,6 +570,7 @@ class ClipperApp(ctk.CTk):
         self._comp_var.set(
             COMP_BY_VALUE.get(settings["compilation_mode"], COMP_BY_VALUE[COMP_NONE])
         )
+        self._transitions.set(bool(settings["transitions"]))
         self._update_threshold_label()
         self._update_sensitivity_hint()
 
@@ -566,6 +588,7 @@ class ClipperApp(ctk.CTk):
             "output_format": FORMAT_LABELS.get(self._format_selector.get(), FORMAT_HORIZONTAL),
             "vertical_style": STYLE_LABELS.get(self._style_selector.get(), VERTICAL_BLUR),
             "compilation_mode": COMP_LABELS.get(self._comp_var.get(), COMP_NONE),
+            "transitions": bool(self._transitions.get()),
         })
 
     def _on_close(self) -> None:

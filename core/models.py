@@ -24,7 +24,8 @@ FORMAT_BOTH = "horizontal+vertical"     # ambos
 
 # Estilos de conversión a vertical (JobConfig.vertical_style)
 VERTICAL_BLUR = "blur"  # video completo centrado sobre fondo ampliado y difuminado
-VERTICAL_CROP = "crop"  # recorte de la franja central (pierde killfeed/minimapa)
+VERTICAL_ZOOM = "zoom"  # recorte 3:4 grande (75% de la altura) + bandas difuminadas
+VERTICAL_CROP = "crop"  # recorte de la franja central a pantalla completa
 
 # Modos de compilatorio (JobConfig.compilation_mode)
 COMP_NONE = "none"  # solo clips individuales
@@ -68,6 +69,7 @@ class JobConfig:
     output_format: str = FORMAT_HORIZONTAL  # FORMAT_HORIZONTAL | FORMAT_VERTICAL | FORMAT_BOTH
     vertical_style: str = VERTICAL_BLUR     # VERTICAL_BLUR | VERTICAL_CROP
     compilation_mode: str = COMP_NONE       # COMP_NONE | COMP_ALSO | COMP_ONLY
+    transitions: bool = False               # crossfade entre clips del compilatorio
 
 
 @dataclass(frozen=True)

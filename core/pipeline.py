@@ -192,7 +192,7 @@ class HighlightPipeline:
                 self._progress(percent)
 
             is_hdr = False
-            if include_v or config.exact_cut:
+            if include_v or config.exact_cut or (make_comp and config.transitions):
                 encoder = "NVENC (GPU)" if ffmpeg_wrapper.has_nvenc() else "libx264 (CPU)"
                 self._log(f"Recodificación con encoder: {encoder}")
                 is_hdr = ffmpeg_wrapper.probe_is_hdr(config.video_path)
@@ -239,23 +239,47 @@ class HighlightPipeline:
 
             if make_comp:
                 total_clip_seconds = sum(s.duration for s in segments)
+                use_transitions = config.transitions and len(segments) > 1
+                if use_transitions:
+                    self._log(
+                        "Compilatorio con transiciones: se recodifica "
+                        "(crossfade de 0.35 s entre clips)"
+                    )
                 if exported_h:
                     self._check_cancel()
                     comp = output_dir / "highlights_compilation.mp4"
-                    ffmpeg_wrapper.concat_clips(
-                        exported_h, comp, cancel_event=self._cancel,
-                        progress_cb=op_progress, total_duration=total_clip_seconds,
-                    )
+                    if use_transitions:
+                        self._stage("Creando compilatorio con transiciones", None)
+                        # los clips stream-copy conservan el HDR original;
+                        # los de corte exacto ya salieron en SDR
+                        ffmpeg_wrapper.concat_with_transitions(
+                            exported_h, comp,
+                            hdr=is_hdr and not config.exact_cut,
+                            cancel_event=self._cancel, progress_cb=op_progress,
+                        )
+                    else:
+                        ffmpeg_wrapper.concat_clips(
+                            exported_h, comp, cancel_event=self._cancel,
+                            progress_cb=op_progress, total_duration=total_clip_seconds,
+                        )
                     bump("Creando video compilatorio")
                     self._log(f"Compilatorio: {comp.name}", "SUCCESS")
                     files_created += 1
                 if exported_v:
                     self._check_cancel()
                     comp_v = output_dir / "vertical" / "highlights_compilation_vertical.mp4"
-                    ffmpeg_wrapper.concat_clips(
-                        exported_v, comp_v, cancel_event=self._cancel,
-                        progress_cb=op_progress, total_duration=total_clip_seconds,
-                    )
+                    if use_transitions:
+                        self._stage("Creando compilatorio vertical con transiciones", None)
+                        # los clips verticales ya son SDR
+                        ffmpeg_wrapper.concat_with_transitions(
+                            exported_v, comp_v, hdr=False,
+                            cancel_event=self._cancel, progress_cb=op_progress,
+                        )
+                    else:
+                        ffmpeg_wrapper.concat_clips(
+                            exported_v, comp_v, cancel_event=self._cancel,
+                            progress_cb=op_progress, total_duration=total_clip_seconds,
+                        )
                     bump("Creando compilatorio vertical")
                     self._log(f"Compilatorio vertical: {comp_v.name}", "SUCCESS")
                     files_created += 1
