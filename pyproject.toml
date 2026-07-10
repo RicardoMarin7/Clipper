@@ -1,0 +1,15 @@
+[project]
+name = "clipper"
+version = "0.1.0"
+description = "Extractor local de highlights de Battlefield 6 (deteccion por picos de audio)"
+requires-python = ">=3.10"
+dependencies = [
+    "customtkinter==5.2.2",
+    "numpy>=1.26,<3",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

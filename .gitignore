@@ -1,0 +1,27 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# --- Artefactos de build (regenerables con build.ps1) ---
+build/
+dist/
+Clipper.spec
+installer_output/
+
+# --- Binarios de FFmpeg (~300 MB; cada quien los instala con winget
+#     o los copia a bin/, ver README) ---
+bin/
+
+# --- Sonidos originales extraídos del juego (solo se versionan las
+#     plantillas ya procesadas de assets/kill_sounds/) ---
+bf6_kill_sounds/
+
+# --- Locales / SO ---
+.claude/settings.local.json
+Thumbs.db
+desktop.ini
