@@ -12,7 +12,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from core import audio_analyzer, clip_extractor, highlight_detector, sound_matcher
+from core import audio_analyzer, clip_extractor, highlight_detector, sound_matcher, video_analyzer
 from core.models import (
     DETECT_BOTH,
     DETECT_INTENSITY,
@@ -87,9 +87,35 @@ class HighlightPipeline:
                         wav_path, templates, threshold=config.kill_threshold
                     )
                     self._log(
-                        f"{len(kill_times)} kills detectadas por sonido "
+                        f"{len(kill_times)} candidatos de kill por audio "
                         f"(umbral {config.kill_threshold:.2f})"
                     )
+                    skull = video_analyzer.load_skull_template()
+                    if skull is not None and len(kill_times):
+                        # Verificación visual: mirar ~8 frames por candidato
+                        # buscando la calavera de la UI de kill
+                        self._stage("Verificando kills en video", EXTRACT_END)
+                        span = ANALYZE_END - EXTRACT_END
+                        confirmed = video_analyzer.verify_kill_events(
+                            config.video_path, kill_times, kill_scores, skull,
+                            cancel_event=self._cancel,
+                            progress_cb=lambda i, n: self._progress(
+                                EXTRACT_END + span * i / n
+                            ),
+                        )
+                        kill_times = kill_times[confirmed]
+                        kill_scores = kill_scores[confirmed]
+                        self._log(
+                            f"{len(kill_times)} kills confirmadas en video "
+                            f"({int((~confirmed).sum())} candidatos descartados)",
+                            "SUCCESS",
+                        )
+                    elif skull is None:
+                        self._log(
+                            "Sin plantilla de calavera (assets/kill_skull.npy): "
+                            "kills solo por audio; sube el umbral a ~0.55",
+                            "WARN",
+                        )
                     sources.append(highlight_detector.build_segments(
                         kill_times, kill_scores,
                         pre_padding=config.pre_padding,

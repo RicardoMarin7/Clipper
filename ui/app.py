@@ -167,7 +167,7 @@ class ClipperApp(ctk.CTk):
         ctk.CTkLabel(
             detection, text="Umbral de kills", width=150, anchor="w", font=theme.FONT_UI
         ).grid(row=4, column=0, padx=(theme.PAD_X, 8), pady=4, sticky="w")
-        self._kill_threshold = tk.DoubleVar(value=0.55)
+        self._kill_threshold = tk.DoubleVar(value=0.45)
         self._threshold_slider = ctk.CTkSlider(
             detection, from_=0.30, to=0.80, number_of_steps=10,
             variable=self._kill_threshold,

@@ -17,7 +17,7 @@ DEFAULTS: dict = {
     "post_padding": 5,
     "exact_cut": False,
     "detection_mode": "both",
-    "kill_threshold": 0.55,
+    "kill_threshold": 0.45,
     "output_format": "horizontal",
     "vertical_style": "blur",
     "make_compilation": False,

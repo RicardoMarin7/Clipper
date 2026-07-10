@@ -59,7 +59,7 @@ class JobConfig:
     post_padding: float = 5.0   # segundos después del pico
     exact_cut: bool = False     # False = stream copy, True = recodificar (NVENC/x264)
     detection_mode: str = DETECT_BOTH  # DETECT_KILLS | DETECT_BOTH | DETECT_INTENSITY
-    kill_threshold: float = 0.55  # ZNCC mínima para aceptar un match de kill (0.30-0.80)
+    kill_threshold: float = 0.45  # umbral de candidatos de audio (0.30-0.80)
     output_format: str = FORMAT_HORIZONTAL  # FORMAT_HORIZONTAL | FORMAT_VERTICAL | FORMAT_BOTH
     vertical_style: str = VERTICAL_BLUR     # VERTICAL_BLUR | VERTICAL_CROP
     make_compilation: bool = False          # además, unir todos los clips en un solo video
