@@ -62,8 +62,8 @@ class ClipperApp(ctk.CTk):
         super().__init__()
 
         self.title("Clipper — Battlefield 6 Highlight Extractor")
-        self.geometry("760x640")
-        self.minsize(680, 560)
+        self.geometry("760x700")
+        self.minsize(680, 620)
 
         self._event_queue: queue.Queue[ProgressEvent] = queue.Queue()
         self._cancel_event: threading.Event | None = None
@@ -147,10 +147,29 @@ class ClipperApp(ctk.CTk):
         self._sensitivity_hint.grid(row=3, column=1, columnspan=3, sticky="w")
 
         ctk.CTkLabel(
-            detection, text="Padding pre/post (seg)", width=150, anchor="w", font=theme.FONT_UI
+            detection, text="Umbral de kills", width=150, anchor="w", font=theme.FONT_UI
         ).grid(row=4, column=0, padx=(theme.PAD_X, 8), pady=4, sticky="w")
+        self._kill_threshold = tk.DoubleVar(value=0.50)
+        self._threshold_slider = ctk.CTkSlider(
+            detection, from_=0.30, to=0.80, number_of_steps=10,
+            variable=self._kill_threshold,
+            command=lambda _v: self._update_threshold_label(),
+        )
+        self._threshold_slider.grid(row=4, column=1, columnspan=2, pady=4, sticky="ew")
+        self._threshold_label = ctk.CTkLabel(detection, text="0.50", width=40,
+                                             font=theme.FONT_UI_BOLD)
+        self._threshold_label.grid(row=4, column=3, padx=(8, theme.PAD_X), pady=4)
+        ctk.CTkLabel(
+            detection,
+            text="Bájalo si faltan kills · súbelo si aparecen clips falsos",
+            font=("Segoe UI", 11), text_color="gray60", anchor="w",
+        ).grid(row=5, column=1, columnspan=3, sticky="w")
+
+        ctk.CTkLabel(
+            detection, text="Padding pre/post (seg)", width=150, anchor="w", font=theme.FONT_UI
+        ).grid(row=6, column=0, padx=(theme.PAD_X, 8), pady=4, sticky="w")
         padding_row = ctk.CTkFrame(detection, fg_color="transparent")
-        padding_row.grid(row=4, column=1, columnspan=3, pady=4, sticky="w")
+        padding_row.grid(row=6, column=1, columnspan=3, pady=4, sticky="w")
         self._pre_padding = tk.StringVar(value="3")
         self._post_padding = tk.StringVar(value="5")
         self._pre_entry = ctk.CTkEntry(padding_row, width=52, justify="center",
@@ -167,7 +186,7 @@ class ClipperApp(ctk.CTk):
             variable=self._exact_cut, font=theme.FONT_UI,
         )
         self._exact_checkbox.grid(
-            row=5, column=0, columnspan=4, padx=theme.PAD_X, pady=(4, theme.PAD_Y), sticky="w"
+            row=7, column=0, columnspan=4, padx=theme.PAD_X, pady=(4, theme.PAD_Y), sticky="w"
         )
 
         # ③ EJECUCIÓN ------------------------------------------------------
@@ -222,6 +241,7 @@ class ClipperApp(ctk.CTk):
         widget_state = "normal" if form_enabled else "disabled"
         self._mode_selector.configure(state=widget_state)
         self._slider.configure(state=widget_state)
+        self._threshold_slider.configure(state=widget_state)
         self._pre_entry.configure(state=widget_state)
         self._post_entry.configure(state=widget_state)
         self._exact_checkbox.configure(state=widget_state)
@@ -268,6 +288,7 @@ class ClipperApp(ctk.CTk):
             post_padding=float(post),
             exact_cut=bool(self._exact_cut.get()),
             detection_mode=MODE_LABELS.get(self._mode_selector.get(), DETECT_BOTH),
+            kill_threshold=round(float(self._kill_threshold.get()), 2),
         )
 
         self._progress_panel.reset()
@@ -358,6 +379,9 @@ class ClipperApp(ctk.CTk):
     def _update_sensitivity_label(self) -> None:
         self._sensitivity_label.configure(text=str(int(self._sensitivity.get())))
 
+    def _update_threshold_label(self) -> None:
+        self._threshold_label.configure(text=f"{self._kill_threshold.get():.2f}")
+
     def _update_sensitivity_hint(self) -> None:
         mode = MODE_LABELS.get(self._mode_selector.get(), DETECT_BOTH)
         if mode == DETECT_KILLS:
@@ -403,6 +427,10 @@ class ClipperApp(ctk.CTk):
         self._mode_selector.set(
             MODE_BY_VALUE.get(settings["detection_mode"], MODE_BY_VALUE[DETECT_BOTH])
         )
+        self._kill_threshold.set(
+            min(0.80, max(0.30, float(settings["kill_threshold"])))
+        )
+        self._update_threshold_label()
         self._update_sensitivity_hint()
 
     def _save_settings(self) -> None:
@@ -415,6 +443,7 @@ class ClipperApp(ctk.CTk):
             "post_padding": paddings[1],
             "exact_cut": bool(self._exact_cut.get()),
             "detection_mode": MODE_LABELS.get(self._mode_selector.get(), DETECT_BOTH),
+            "kill_threshold": round(float(self._kill_threshold.get()), 2),
         })
 
     def _on_close(self) -> None:
